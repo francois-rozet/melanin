@@ -10,7 +10,7 @@ with open('requirements.txt', 'r') as f:
 
 setuptools.setup(
     name='melanin',
-    version='0.0.1',
+    version='0.0.2',
     packages=setuptools.find_packages(),
     description='Darken Python code exposed to sunlight',
     keywords='automation formatter pep8 black yapf',

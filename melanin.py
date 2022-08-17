@@ -13,49 +13,51 @@ from pathlib import Path
 from typing import *
 
 
-def parse_range(start: str, length: str) -> Tuple[int, int]:
+def parse_range(start: str, length: str) -> range:
     r"""Parses hunk range."""
 
     start = int(start)
     length = int(length) if length else 1
 
-    return start, start + length
+    return range(start, start + length)
 
 
 def git_diff(
     commit: str,
     repository: Path = None,
     files: List[Path] = None,
-) -> Dict[Path, List[Tuple[int, int]]]:
-    r"""Compares the working tree to a commit and returns hunk ranges per file."""
+) -> Dict[Path, Set[int]]:
+    r"""Compares the working tree to a commit and returns lines that have changed."""
 
     commit = git.Repo(repository).commit(commit)
-    ranges = {}
+    lines = {}
 
-    for diff in commit.diff(None, paths=files, create_patch=True, unified=1):
+    for diff in commit.diff(None, paths=files, create_patch=True, unified=0):
         if diff.deleted_file:
             continue
 
         file = Path(diff.b_path)
         diff = diff.diff.decode('utf8')
 
-        ranges[file] = [
+        ranges = [
             parse_range(s, l) for s, l in
             re.findall(r'@@ .* \+(\d+),?(\d+)? @@', diff)
         ]
 
-    return ranges
+        lines[file] = set().union(*ranges)
+
+    return lines
 
 
-def format_ranges(
+def format_lines(
     src: str,
-    ranges: List[Tuple[int, int]],
+    lines: Set[int],
     fast: bool,
     mode: black.Mode,
 ) -> str:
-    r"""Formats source code with Black but only keeps changes that overlap ranges.
+    r"""Formats source code with Black but only keeps changes that overlap lines.
 
-    Returns the reformatted code. If :py:`fast` is :py:`False`, confirms that the
+    Returns the reformatted code. If `fast` is `False`, confirms that the
     reformatted code is equivalent to the source code.
     """
 
@@ -71,7 +73,7 @@ def format_ranges(
 
     hunks = []
 
-    for line in difflib.unified_diff(src_, dst_, n=1):
+    for line in difflib.unified_diff(src_, dst_, n=0):
         if line.startswith('---') or line.startswith('+++'):
             pass
         elif line.startswith('@@'):
@@ -79,20 +81,15 @@ def format_ranges(
         else:
             hunks[-1].append(line)
 
-    # Filter hunks with respect to ranges
+    # Filter hunks with respect to lines
     patch = []
 
     for hunk in hunks:
-        start, length = re.match(r'@@ -(\d+),?(\d+)? .* @@', hunk[0]).groups()
-        i, j = parse_range(start, length)
+        s, l = re.match(r'@@ -(\d+),?(\d+)? .* @@', hunk[0]).groups()
+        rnge = parse_range(s, l)
 
-        for k, l in ranges:
-            if max(i, k) < min(j, l):
-                break
-        else:
-            continue
-
-        patch.extend(hunk)
+        if lines.intersection(rnge):
+            patch.extend(hunk)
 
     if not patch:
         raise black.report.NothingChanged
@@ -125,7 +122,7 @@ def format_ranges(
 
 def format_file(
     file: Path,
-    ranges: List[Tuple[int, int]],
+    lines: Set[int],
     fast: bool,
     mode: black.Mode,
     check: bool = False,
@@ -133,10 +130,10 @@ def format_file(
     color: bool = False,
     lock: Optional[Lock] = None,
 ) -> bool:
-    r"""Formats a file with Black but only keeps changes that overlap ranges.
+    r"""Formats a file with Black but only keeps changes that overlap lines.
 
-    Returns whether the file changes. If :py:`diff` is :py:`True`, writes a unified
-    diff to standard output. If :py:`diff` and :py:`check` are :py:`False`, writes
+    Returns whether the file changes. If `diff` is `True`, writes a unified
+    diff to standard output. If `diff` and `check` are `False`, writes
     reformatted code to the file.
     """
 
@@ -144,9 +141,9 @@ def format_file(
         src, encoding, newline = black.decode_bytes(f.read())
 
     try:
-        dst = format_ranges(
+        dst = format_lines(
             src,
-            ranges,
+            lines,
             fast=fast,
             mode=mode,
         )
@@ -171,7 +168,7 @@ def format_file(
 
 
 def borrow(command: click.Command) -> Callable:
-    r"""Returns a decorator that copies the parameters of click command to
+    r"""Returns a decorator that copies the parameters of a click command to
     another function."""
 
     def wrapper(f: Callable) -> Callable:
@@ -255,15 +252,15 @@ def tan(
         stdin_filename=None,
     )
 
-    ranges = git_diff(commit, ctx.obj['root'], list(sources))
+    lines = git_diff(commit, ctx.obj['root'], list(sources))
 
-    if not ranges:
+    if not lines:
         if verbose or not quiet:
             click.echo(f"No Python files have changed from {commit}.", err=True)
         ctx.exit(0)
 
     try:
-        executor = cf.ProcessPoolExecutor(max_workers=min(workers, len(ranges)))
+        executor = cf.ProcessPoolExecutor(max_workers=min(workers, len(lines)))
     except:
         executor = cf.ThreadPoolExecutor(max_workers=1)
 
@@ -271,11 +268,11 @@ def tan(
         lock = Manager().Lock()
         tasks = {}
 
-        for file in ranges:
+        for file in lines:
             tasks[file] = executor.submit(
                 format_file,
                 file,
-                ranges[file],
+                lines[file],
                 fast=fast,
                 mode=mode,
                 check=check,
@@ -284,14 +281,14 @@ def tan(
                 lock=lock,
             )
 
-        for file, task in tasks.items():
-            if task.exception():
-                report.failed(file, str(task.exception()))
+    for file, task in tasks.items():
+        if task.exception():
+            report.failed(file, str(task.exception()))
+        else:
+            if task.result():
+                report.done(file, black.Changed.YES)
             else:
-                if task.result():
-                    report.done(file, black.Changed.YES)
-                else:
-                    report.done(file, black.Changed.NO)
+                report.done(file, black.Changed.NO)
 
     if verbose or not quiet:
         if verbose or report.change_count or report.failure_count:
