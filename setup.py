@@ -10,7 +10,7 @@ with open('requirements.txt', 'r') as f:
 
 setuptools.setup(
     name='melanin',
-    version='0.0.2',
+    version='0.0.3',
     packages=setuptools.find_packages(),
     description='Darken Python code exposed to sunlight',
     keywords='automation formatter pep8 black yapf',
@@ -26,6 +26,7 @@ setuptools.setup(
         'Tracker': 'https://github.com/francois-rozet/melanin/issues',
     },
     classifiers=[
+        'Environment :: Console',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',
         'Natural Language :: English',

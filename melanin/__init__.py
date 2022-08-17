@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+r"""Darken Python code exposed to sunlight"""
 
 import black
 import click
@@ -182,7 +182,7 @@ def borrow(command: click.Command) -> Callable:
 click.borrow = borrow
 
 
-@click.command
+@click.command()
 @click.borrow(black.main)
 @click.option(
     '--commit',
@@ -294,7 +294,3 @@ def tan(
         click.echo(str(report), err=True)
 
     ctx.exit(report.return_code)
-
-
-if __name__ == '__main__':
-    tan()
