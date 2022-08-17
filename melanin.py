@@ -22,29 +22,26 @@ def parse_range(start: str, length: str) -> range:
     return range(start, start + length)
 
 
-def git_diff(
-    commit: str,
-    repository: Path = None,
-    files: List[Path] = None,
-) -> Dict[Path, Set[int]]:
-    r"""Compares the working tree to a commit and returns lines that have changed."""
+def git_diff(commit: str, repository: Path = None) -> Dict[Path, Set[int]]:
+    r"""Compares the working tree to a commit and returns the lines that have changed."""
 
     commit = git.Repo(repository).commit(commit)
     lines = {}
 
-    for diff in commit.diff(None, paths=files, create_patch=True, unified=0):
+    for diff in commit.diff(None, create_patch=True, unified=0):
         if diff.deleted_file:
             continue
 
         file = Path(diff.b_path)
         diff = diff.diff.decode('utf8')
 
-        ranges = [
-            parse_range(s, l) for s, l in
-            re.findall(r'@@ .* \+(\d+),?(\d+)? @@', diff)
-        ]
+        if diff:
+            ranges = [
+                parse_range(s, l)
+                for s, l in re.findall(r'@@ .* \+(\d+),?(\d+)? @@', diff)
+            ]
 
-        lines[file] = set().union(*ranges)
+            lines[file] = set().union(*ranges)
 
     return lines
 
@@ -252,15 +249,16 @@ def tan(
         stdin_filename=None,
     )
 
-    lines = git_diff(commit, ctx.obj['root'], list(sources))
+    lines = git_diff(commit, ctx.obj['root'])
+    sources = sources.intersection(lines.keys())
 
-    if not lines:
+    if not sources:
         if verbose or not quiet:
             click.echo(f"No Python files have changed from {commit}.", err=True)
         ctx.exit(0)
 
     try:
-        executor = cf.ProcessPoolExecutor(max_workers=min(workers, len(lines)))
+        executor = cf.ProcessPoolExecutor(max_workers=min(workers, len(sources)))
     except:
         executor = cf.ThreadPoolExecutor(max_workers=1)
 
@@ -268,7 +266,7 @@ def tan(
         lock = Manager().Lock()
         tasks = {}
 
-        for file in lines:
+        for file in sources:
             tasks[file] = executor.submit(
                 format_file,
                 file,
