@@ -1,3 +1,7 @@
+r"""Module's main"""
+
 from . import tan
 
-tan()
+
+if __name__ == '__main__':
+    tan()
