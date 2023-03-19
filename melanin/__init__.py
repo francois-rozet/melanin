@@ -32,7 +32,7 @@ def git_diff(commit: str, repository: Path = None) -> Dict[Path, Set[int]]:
         if diff.deleted_file:
             continue
 
-        file = Path(diff.b_path)
+        file = Path(diff.b_blob.abspath)
         diff = diff.diff.decode('utf8')
 
         if diff:
