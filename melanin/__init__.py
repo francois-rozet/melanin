@@ -1,5 +1,7 @@
 r"""Darken Python code exposed to sunlight"""
 
+__version__ = '0.1.1'
+
 import black
 import click
 import concurrent.futures as cf
